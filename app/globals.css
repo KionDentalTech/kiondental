@@ -158,4 +158,20 @@ body {
     line-height: 1.1;
     letter-spacing: -0.02em;
   }
+
+  .service-card {
+    background: #0B0E16;
+  }
+  .service-card:hover {
+    background: rgba(0,177,210,0.06);
+  }
+
+  .newsletter-btn {
+    background: #00B1D2;
+    color: #07090E;
+    letter-spacing: 0.14em;
+  }
+  .newsletter-btn:hover {
+    background: #00DCFF;
+  }
 }

@@ -333,16 +333,7 @@ export default function Home() {
               <Link
                 key={i}
                 href={s.href}
-                className="group flex flex-col justify-between p-6 transition-all duration-200"
-                style={{ background: '#0B0E16' }}
-                onMouseEnter={(e) => {
-                  const el = e.currentTarget
-                  el.style.background = 'rgba(0,177,210,0.06)'
-                }}
-                onMouseLeave={(e) => {
-                  const el = e.currentTarget
-                  el.style.background = '#0B0E16'
-                }}
+                className="group flex flex-col justify-between p-6 transition-all duration-200 service-card"
               >
                 <div>
                   <div className="mono text-[10px] mb-3" style={{ color: 'rgba(0,177,210,0.4)' }}>{s.n}</div>
@@ -490,12 +481,7 @@ export default function Home() {
               className="flex-1 px-5 py-3.5 text-sm font-semibold outline-none bg-transparent"
               style={{ color: 'white' }}
             />
-            <button
-              className="flex-shrink-0 font-black text-[10px] uppercase tracking-widest px-7 py-3.5 transition-all duration-200"
-              style={{ background: '#00B1D2', color: '#07090E', letterSpacing: '0.14em' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#00DCFF' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#00B1D2' }}
-            >
+            <button className="newsletter-btn flex-shrink-0 font-black text-[10px] uppercase tracking-widest px-7 py-3.5 transition-all duration-200">
               Assinar
             </button>
           </div>
