@@ -3,96 +3,95 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 
-const navItems = [
-  { label: 'Soluções', href: '/solucoes' },
-  { label: 'Serviços', href: '/servicos' },
-  { label: "Ebook's", href: '/ebooks' },
+const nav = [
+  { label: 'Soluções',  href: '/solucoes' },
+  { label: 'Serviços',  href: '/servicos' },
+  { label: "Ebook's",   href: '/ebooks' },
   { label: 'Tutoriais', href: '/tutoriais' },
-  { label: 'Blog', href: '/blog' },
+  { label: 'Blog',      href: '/blog' },
 ]
 
 export default function Header() {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen]       = useState(false)
   const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
-    const handler = () => setScrolled(window.scrollY > 24)
-    window.addEventListener('scroll', handler, { passive: true })
-    return () => window.removeEventListener('scroll', handler)
+    const fn = () => setScrolled(window.scrollY > 20)
+    window.addEventListener('scroll', fn, { passive: true })
+    return () => window.removeEventListener('scroll', fn)
   }, [])
 
   return (
     <header
+      style={{ background: scrolled ? 'rgba(7,9,14,0.92)' : '#07090E' }}
       className={`sticky top-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? 'bg-escuro/95 backdrop-blur-md shadow-xl shadow-black/30 border-b border-white/5'
-          : 'bg-escuro'
+        scrolled ? 'backdrop-blur-md border-b border-white/5 shadow-2xl shadow-black/50' : 'border-b border-white/5'
       }`}
     >
-      <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-[72px]">
+      <div className="max-w-7xl mx-auto px-6 flex items-center justify-between h-[68px]">
 
         {/* LOGO */}
-        <Link href="/" className="flex-shrink-0 group">
+        <Link href="/" className="flex-shrink-0">
           <Image
             src="/logo-horizontal-branco.png"
             alt="KION Dental Technology"
-            width={148}
-            height={44}
+            width={140}
+            height={40}
             priority
-            className="h-10 w-auto transition-opacity duration-200 group-hover:opacity-80"
+            className="h-9 w-auto opacity-95 hover:opacity-100 transition-opacity"
           />
         </Link>
 
         {/* NAV DESKTOP */}
-        <nav className="hidden md:flex items-center gap-7">
-          {navItems.map(item => (
+        <nav className="hidden md:flex items-center gap-8">
+          {nav.map(item => (
             <Link
               key={item.href}
               href={item.href}
-              className="relative text-white/60 hover:text-white text-[13px] font-700 uppercase tracking-wider transition-colors duration-200 after:content-[''] after:absolute after:left-0 after:-bottom-0.5 after:h-px after:w-0 after:bg-turquesa after:transition-all after:duration-200 hover:after:w-full"
+              className="text-white/45 hover:text-white text-[12px] font-bold uppercase tracking-widest transition-colors duration-150"
             >
               {item.label}
             </Link>
           ))}
         </nav>
 
-        {/* CTA DESKTOP */}
-        <div className="hidden md:flex items-center gap-3">
+        {/* CTA */}
+        <div className="hidden md:block">
           <a
             href="https://clinic.kiwid.app/auth/login"
             target="_blank"
             rel="noopener"
-            className="relative overflow-hidden bg-turquesa text-escuro text-[11px] font-black uppercase tracking-wider px-5 py-2.5 rounded-full transition-all duration-200 hover:bg-ciano hover:shadow-lg hover:shadow-turquesa/30 hover:-translate-y-px"
+            className="btn-tech text-[10px]"
           >
             Acessar Portal
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           </a>
         </div>
 
         {/* HAMBURGER */}
         <button
-          className="md:hidden w-10 h-10 flex flex-col justify-center items-center gap-1.5 text-white"
+          className="md:hidden flex flex-col gap-[5px] p-2"
           onClick={() => setOpen(!open)}
           aria-label="Menu"
         >
-          <span className={`block h-px w-6 bg-white transition-all duration-200 ${open ? 'rotate-45 translate-y-2' : ''}`} />
-          <span className={`block h-px w-6 bg-white transition-all duration-200 ${open ? 'opacity-0' : ''}`} />
-          <span className={`block h-px w-6 bg-white transition-all duration-200 ${open ? '-rotate-45 -translate-y-2' : ''}`} />
+          <span className={`block h-px w-5 bg-white/70 transition-all duration-200 origin-center ${open ? 'rotate-45 translate-y-[6px]' : ''}`} />
+          <span className={`block h-px w-5 bg-white/70 transition-all duration-200 ${open ? 'opacity-0 scale-x-0' : ''}`} />
+          <span className={`block h-px w-5 bg-white/70 transition-all duration-200 origin-center ${open ? '-rotate-45 -translate-y-[6px]' : ''}`} />
         </button>
       </div>
 
-      {/* MOBILE NAV */}
+      {/* MOBILE DRAWER */}
       <div
-        className={`md:hidden overflow-hidden transition-all duration-300 ${
-          open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
-        }`}
+        className={`md:hidden overflow-hidden transition-all duration-300 ${open ? 'max-h-80' : 'max-h-0'}`}
+        style={{ background: '#0D1117', borderTop: '1px solid rgba(255,255,255,0.06)' }}
       >
-        <div className="bg-escuro/98 border-t border-white/10 px-6 py-5 flex flex-col gap-4">
-          {navItems.map(item => (
+        <div className="px-6 py-6 flex flex-col gap-5">
+          {nav.map(item => (
             <Link
               key={item.href}
               href={item.href}
-              className="text-white/70 hover:text-turquesa text-sm font-bold uppercase tracking-wider transition-colors"
               onClick={() => setOpen(false)}
+              className="text-white/50 hover:text-white text-sm font-bold uppercase tracking-widest transition-colors"
             >
               {item.label}
             </Link>
@@ -101,7 +100,7 @@ export default function Header() {
             href="https://clinic.kiwid.app/auth/login"
             target="_blank"
             rel="noopener"
-            className="mt-2 bg-turquesa text-escuro text-xs font-black uppercase tracking-wider px-5 py-3 rounded-full text-center hover:bg-ciano transition-colors"
+            className="btn-tech mt-2 justify-center"
           >
             Acessar Portal
           </a>
