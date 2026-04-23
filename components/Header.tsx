@@ -1,84 +1,97 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
+
+const navItems = [
+  { label: 'Soluções', href: '/solucoes' },
+  { label: 'Serviços', href: '/servicos' },
+  { label: "Ebook's", href: '/ebooks' },
+  { label: 'Tutoriais', href: '/tutoriais' },
+  { label: 'Blog', href: '/blog' },
+]
 
 export default function Header() {
   const [open, setOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+
+  useEffect(() => {
+    const handler = () => setScrolled(window.scrollY > 24)
+    window.addEventListener('scroll', handler, { passive: true })
+    return () => window.removeEventListener('scroll', handler)
+  }, [])
 
   return (
-    <header className="sticky top-0 z-50 bg-turquesa shadow-lg shadow-turquesa/20">
-      <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-16">
+    <header
+      className={`sticky top-0 z-50 transition-all duration-300 ${
+        scrolled
+          ? 'bg-escuro/95 backdrop-blur-md shadow-xl shadow-black/30 border-b border-white/5'
+          : 'bg-escuro'
+      }`}
+    >
+      <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-[72px]">
 
         {/* LOGO */}
-        <Link href="/" className="flex items-center gap-3">
-          <svg width="44" height="44" viewBox="0 0 48 48" fill="none">
-            <path d="M24 4 A20 20 0 1 1 4 24" stroke="url(#gh)" strokeWidth="4" strokeLinecap="round"/>
-            <defs>
-              <linearGradient id="gh" x1="4" y1="24" x2="44" y2="44" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#00DCFF"/>
-                <stop offset="100%" stopColor="#F9EC1F"/>
-              </linearGradient>
-            </defs>
-          </svg>
-          <div>
-            <div className="text-white font-black text-xl tracking-widest leading-none">KION</div>
-            <div className="text-white/80 text-[10px] tracking-widest uppercase">Dental Technology</div>
-          </div>
+        <Link href="/" className="flex-shrink-0 group">
+          <Image
+            src="/logo-horizontal-branco.png"
+            alt="KION Dental Technology"
+            width={148}
+            height={44}
+            priority
+            className="h-10 w-auto transition-opacity duration-200 group-hover:opacity-80"
+          />
         </Link>
 
         {/* NAV DESKTOP */}
-        <nav className="hidden md:flex items-center gap-8">
-          {[
-            { label: 'Soluções', href: '/solucoes' },
-            { label: 'Serviços', href: '/servicos' },
-            { label: "Ebook's", href: '/ebooks' },
-            { label: 'Tutoriais', href: '/tutoriais' },
-            { label: 'Blog', href: '/blog' },
-          ].map(item => (
+        <nav className="hidden md:flex items-center gap-7">
+          {navItems.map(item => (
             <Link
               key={item.href}
               href={item.href}
-              className="text-white/90 hover:text-amarelo text-sm font-700 uppercase tracking-wider transition-colors"
+              className="relative text-white/60 hover:text-white text-[13px] font-700 uppercase tracking-wider transition-colors duration-200 after:content-[''] after:absolute after:left-0 after:-bottom-0.5 after:h-px after:w-0 after:bg-turquesa after:transition-all after:duration-200 hover:after:w-full"
             >
               {item.label}
             </Link>
           ))}
         </nav>
 
-        {/* CTA */}
+        {/* CTA DESKTOP */}
         <div className="hidden md:flex items-center gap-3">
           <a
             href="https://clinic.kiwid.app/auth/login"
             target="_blank"
-            className="bg-amarelo text-escuro text-xs font-black uppercase tracking-wider px-4 py-2 rounded transition hover:bg-white"
+            rel="noopener"
+            className="relative overflow-hidden bg-turquesa text-escuro text-[11px] font-black uppercase tracking-wider px-5 py-2.5 rounded-full transition-all duration-200 hover:bg-ciano hover:shadow-lg hover:shadow-turquesa/30 hover:-translate-y-px"
           >
             Acessar Portal
           </a>
         </div>
 
-        {/* MOBILE MENU BTN */}
+        {/* HAMBURGER */}
         <button
-          className="md:hidden text-white text-2xl"
+          className="md:hidden w-10 h-10 flex flex-col justify-center items-center gap-1.5 text-white"
           onClick={() => setOpen(!open)}
+          aria-label="Menu"
         >
-          {open ? '✕' : '☰'}
+          <span className={`block h-px w-6 bg-white transition-all duration-200 ${open ? 'rotate-45 translate-y-2' : ''}`} />
+          <span className={`block h-px w-6 bg-white transition-all duration-200 ${open ? 'opacity-0' : ''}`} />
+          <span className={`block h-px w-6 bg-white transition-all duration-200 ${open ? '-rotate-45 -translate-y-2' : ''}`} />
         </button>
       </div>
 
       {/* MOBILE NAV */}
-      {open && (
-        <div className="md:hidden bg-escuro px-6 py-4 flex flex-col gap-4">
-          {[
-            { label: 'Soluções', href: '/solucoes' },
-            { label: 'Serviços', href: '/servicos' },
-            { label: "Ebook's", href: '/ebooks' },
-            { label: 'Tutoriais', href: '/tutoriais' },
-            { label: 'Blog', href: '/blog' },
-          ].map(item => (
+      <div
+        className={`md:hidden overflow-hidden transition-all duration-300 ${
+          open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+        }`}
+      >
+        <div className="bg-escuro/98 border-t border-white/10 px-6 py-5 flex flex-col gap-4">
+          {navItems.map(item => (
             <Link
               key={item.href}
               href={item.href}
-              className="text-white/80 hover:text-amarelo text-sm font-700 uppercase tracking-wider"
+              className="text-white/70 hover:text-turquesa text-sm font-bold uppercase tracking-wider transition-colors"
               onClick={() => setOpen(false)}
             >
               {item.label}
@@ -87,12 +100,13 @@ export default function Header() {
           <a
             href="https://clinic.kiwid.app/auth/login"
             target="_blank"
-            className="bg-amarelo text-escuro text-xs font-black uppercase tracking-wider px-4 py-2 rounded text-center mt-2"
+            rel="noopener"
+            className="mt-2 bg-turquesa text-escuro text-xs font-black uppercase tracking-wider px-5 py-3 rounded-full text-center hover:bg-ciano transition-colors"
           >
             Acessar Portal
           </a>
         </div>
-      )}
+      </div>
     </header>
   )
 }
