@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;600;700;800;900&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Nunito', Arial, sans-serif;
+  color: #282828;
+  overflow-x: hidden;
+}
+
+@layer utilities {
+  .kion-gradient {
+    background: linear-gradient(135deg, #00DCFF, #F9EC1F);
+  }
+  .text-gradient {
+    background: linear-gradient(135deg, #00B1D2, #00DCFF);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
