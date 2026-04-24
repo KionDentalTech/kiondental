@@ -1,0 +1,376 @@
+// Payment Control System — Prisma Schema
+// Security: RLS via organizationId scoping, soft deletes, immutable audit log
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN       // Full access + user management + audit logs
+  FINANCEIRO  // Create/edit payments, view reports
+  APROVADOR   // Approve/reject payments
+  CONSULTA    // Read-only access
+}
+
+enum PaymentStatus {
+  RASCUNHO    // Draft, not yet active
+  PENDENTE    // Pending payment
+  APROVADO    // Approved, awaiting payment
+  PAGO        // Paid
+  ATRASADO    // Overdue
+  CANCELADO   // Cancelled
+  SUSPENSO    // Suspended (anomaly detected)
+}
+
+enum RecorrenciaType {
+  AVULSO      // One-time
+  MENSAL
+  BIMESTRAL
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  APPROVE
+  REJECT
+  EXPORT
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  MFA_SETUP
+  MFA_DISABLED
+  ROLE_CHANGE
+  ACCESS_DENIED
+  EMAIL_INGESTED
+  REMINDER_SENT
+  ATTACHMENT_SCANNED
+  ANOMALY_DETECTED
+}
+
+enum EmailIngestionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  MANUAL_REVIEW
+  REJECTED
+}
+
+enum ReminderType {
+  D_MINUS_7
+  D_MINUS_3
+  D_ZERO
+  D_PLUS_1
+}
+
+// ─── ORGANIZATION (multi-tenant ready) ───────────────────────────────────────
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  cnpj        String?  @unique // encrypted at app layer
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  payments    Payment[]
+  categories  Category[]
+  costCenters CostCenter[]
+
+  @@map("organizations")
+}
+
+// ─── USERS ────────────────────────────────────────────────────────────────────
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String
+  passwordHash   String    // bcrypt cost 12
+  role           UserRole  @default(CONSULTA)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  // MFA
+  mfaEnabled     Boolean   @default(false)
+  mfaSecret      String?   // encrypted with APP_ENCRYPTION_KEY
+  mfaBackupCodes String?   // JSON array, each code hashed with bcrypt
+
+  // Account security
+  failedLoginAttempts Int      @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  lastLoginIp         String?  // encrypted
+  passwordChangedAt   DateTime @default(now())
+  forcePasswordReset  Boolean  @default(false)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  sessions       Session[]
+  auditLogs      AuditLog[]    @relation("AuditUser")
+  payments       Payment[]     @relation("PaymentCreator")
+  approvals      Payment[]     @relation("PaymentApprover")
+  responsibleFor Payment[]     @relation("PaymentResponsible")
+
+  @@index([email])
+  @@index([organizationId])
+  @@map("users")
+}
+
+// ─── SESSIONS (NextAuth) ─────────────────────────────────────────────────────
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expires      DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─── CATEGORIES & COST CENTERS ───────────────────────────────────────────────
+
+model Category {
+  id             String       @id @default(cuid())
+  name           String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  payments       Payment[]
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+
+  @@unique([name, organizationId])
+  @@map("categories")
+}
+
+model CostCenter {
+  id             String       @id @default(cuid())
+  code           String
+  name           String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  payments       Payment[]
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+
+  @@unique([code, organizationId])
+  @@map("cost_centers")
+}
+
+// ─── PAYMENTS (core table) ────────────────────────────────────────────────────
+
+model Payment {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+
+  // Encrypted at application layer (AES-256-GCM)
+  // Stored as "iv:authTag:ciphertext" base64
+  fornecedorEnc  String          // encrypted: fornecedor name/CNPJ
+  valorEnc       String          // encrypted: valor in cents (integer string)
+  observacoesEnc String?         // encrypted: free text
+
+  // Non-sensitive searchable fields
+  vencimento     DateTime
+  recorrencia    RecorrenciaType @default(AVULSO)
+  status         PaymentStatus   @default(RASCUNHO)
+  categoryId     String?
+  category       Category?       @relation(fields: [categoryId], references: [id])
+  costCenterId   String?
+  costCenter     CostCenter?     @relation(fields: [costCenterId], references: [id])
+
+  // Duplicate detection hash (HMAC of fornecedor+valor+vencimento)
+  deduplicationHash String?      @unique
+
+  // Recurrence chain
+  parentPaymentId String?
+  parentPayment   Payment?       @relation("RecurrenceChain", fields: [parentPaymentId], references: [id])
+  recurringChildren Payment[]    @relation("RecurrenceChain")
+
+  // Soft delete with audit
+  deletedAt      DateTime?
+  deletedById    String?
+
+  // Relations
+  createdById    String
+  createdBy      User     @relation("PaymentCreator", fields: [createdById], references: [id])
+  approvedById   String?
+  approvedBy     User?    @relation("PaymentApprover", fields: [approvedById], references: [id])
+  responsibleId  String?
+  responsible    User?    @relation("PaymentResponsible", fields: [responsibleId], references: [id])
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  approvedAt     DateTime?
+  paidAt         DateTime?
+
+  // Relations
+  attachments    Attachment[]
+  reminders      ReminderLog[]
+  emailIngestion EmailIngestion?
+
+  @@index([organizationId, vencimento])
+  @@index([organizationId, status])
+  @@index([deduplicationHash])
+  @@index([deletedAt])
+  @@map("payments")
+}
+
+// ─── ATTACHMENTS ─────────────────────────────────────────────────────────────
+
+model Attachment {
+  id           String   @id @default(cuid())
+  paymentId    String
+  payment      Payment  @relation(fields: [paymentId], references: [id])
+
+  // File metadata
+  originalName String   // sanitized on upload
+  storageKey   String   // path in S3/MinIO — never the original name
+  mimeType     String
+  sizeBytes    Int
+  sha256Hash   String   // integrity check
+
+  // Security scanning
+  scanStatus   String   @default("PENDING") // PENDING | CLEAN | MALICIOUS | ERROR
+  scanedAt     DateTime?
+
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  @@index([paymentId])
+  @@map("attachments")
+}
+
+// ─── EMAIL INGESTION ─────────────────────────────────────────────────────────
+
+model EmailIngestion {
+  id             String               @id @default(cuid())
+  organizationId String
+
+  // Message identification
+  messageId      String               @unique // RFC 2822 Message-ID
+  fromAddress    String               // sanitized
+  subject        String?              // sanitized
+  receivedAt     DateTime
+
+  // SPF/DKIM/DMARC results
+  spfResult      String?
+  dkimResult     String?
+  dmarcResult    String?
+  senderAllowed  Boolean              @default(false)
+
+  // Processing
+  status         EmailIngestionStatus @default(PENDING)
+  confidenceScore Float?              // 0.0 to 1.0
+  extractedData  String?              // JSON, encrypted
+  processingError String?
+  requiresReview Boolean              @default(false)
+  reviewedById   String?
+  reviewedAt     DateTime?
+
+  // Link to created payment (if auto-registered)
+  paymentId      String?              @unique
+  payment        Payment?             @relation(fields: [paymentId], references: [id])
+
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([organizationId, status])
+  @@index([receivedAt])
+  @@map("email_ingestions")
+}
+
+// ─── ALLOWED EMAIL SENDERS ───────────────────────────────────────────────────
+
+model AllowedEmailSender {
+  id             String   @id @default(cuid())
+  organizationId String
+  emailPattern   String   // exact address or @domain.com
+  description    String?
+  isActive       Boolean  @default(true)
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, emailPattern])
+  @@map("allowed_email_senders")
+}
+
+// ─── REMINDER LOGS ────────────────────────────────────────────────────────────
+
+model ReminderLog {
+  id           String       @id @default(cuid())
+  paymentId    String
+  payment      Payment      @relation(fields: [paymentId], references: [id])
+  type         ReminderType
+  sentTo       String       // email address
+  sentAt       DateTime     @default(now())
+  success      Boolean
+  errorMessage String?
+  // Idempotency: prevent duplicate sends
+  idempotencyKey String     @unique // SHA256(paymentId + type + date)
+
+  @@index([paymentId])
+  @@map("reminder_logs")
+}
+
+// ─── AUDIT LOG (IMMUTABLE) ────────────────────────────────────────────────────
+// NEVER allow UPDATE or DELETE on this table
+// Enforced via: DB triggers + app-level (no prisma.auditLog.update/delete)
+
+model AuditLog {
+  id             String      @id @default(cuid())
+  organizationId String
+  userId         String?
+  user           User?       @relation("AuditUser", fields: [userId], references: [id])
+
+  action         AuditAction
+  resourceType   String      // "Payment" | "User" | "Session" | etc.
+  resourceId     String?
+
+  // Diff for UPDATE actions — encrypted JSON
+  changesBefore  String?     // encrypted JSON snapshot before
+  changesAfter   String?     // encrypted JSON snapshot after
+
+  // Context
+  ipAddress      String?     // encrypted
+  userAgent      String?
+  sessionId      String?
+
+  // Integrity — HMAC of all fields to detect tampering
+  integrityHash  String
+
+  timestamp      DateTime    @default(now())
+
+  @@index([organizationId, timestamp])
+  @@index([userId, timestamp])
+  @@index([resourceType, resourceId])
+  @@index([action])
+  @@map("audit_logs")
+}

@@ -1,0 +1,220 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main]
+
+# Restrict default permissions — least privilege
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ─── 1. SECRETS SCANNING ──────────────────────────────────────────────────
+  secrets-scan:
+    name: Secrets Scanning (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for leak detection
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  # ─── 2. SAST ──────────────────────────────────────────────────────────────
+  sast:
+    name: SAST (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended,security-and-quality
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+
+  # ─── 3. SCA — DEPENDENCY SCANNING ────────────────────────────────────────
+  sca:
+    name: SCA / Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install dependencies
+        run: npm ci
+      - name: NPM audit (fail on high/critical)
+        run: npm audit --audit-level=high
+      - name: OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: "payment-control"
+          path: "."
+          format: "SARIF"
+          args: "--enableRetired --enableExperimental"
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: reports/dependency-check-report.sarif
+
+  # ─── 4. LINTING + TYPE CHECK ──────────────────────────────────────────────
+  lint-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+
+  # ─── 5. UNIT + INTEGRATION TESTS ─────────────────────────────────────────
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: payment_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ["5432:5432"]
+      redis:
+        image: redis:7-alpine
+        options: --health-cmd "redis-cli ping" --health-interval 10s
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/payment_test
+      REDIS_URL: redis://localhost:6379
+      APP_ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY }}
+      AUDIT_HMAC_KEY: ${{ secrets.TEST_HMAC_KEY }}
+      NEXTAUTH_SECRET: ${{ secrets.TEST_NEXTAUTH_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - run: npm test -- --coverage
+      - uses: codecov/codecov-action@v4
+
+  # ─── 6. BUILD + CONTAINER SCAN ───────────────────────────────────────────
+  build-and-scan:
+    name: Build & Container Scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: [secrets-scan, sast, sca, lint-typecheck]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t payment-control:${{ github.sha }} .
+      - name: Trivy container scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: payment-control:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"  # Block on CRITICAL/HIGH
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+  # ─── 7. IaC SCANNING ─────────────────────────────────────────────────────
+  iac-scan:
+    name: IaC Security Scan (Checkov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile,github_actions
+          soft_fail: false
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif
+
+  # ─── 8. SBOM GENERATION ───────────────────────────────────────────────────
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    needs: build-and-scan
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: payment-control:${{ github.sha }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.spdx.json
+          retention-days: 90
+
+  # ─── 9. DAST (on staging deploy) ─────────────────────────────────────────
+  dast:
+    name: DAST (OWASP ZAP)
+    runs-on: ubuntu-latest
+    needs: build-and-scan
+    if: github.ref == 'refs/heads/develop'
+    steps:
+      - uses: actions/checkout@v4
+      - name: OWASP ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: ${{ secrets.STAGING_URL }}
+          rules_file_name: .zap/rules.tsv
+          cmd_options: "-a -j"
+          fail_action: true
+
+  # ─── 10. SECURITY GATE (required for merge) ──────────────────────────────
+  security-gate:
+    name: Security Gate
+    runs-on: ubuntu-latest
+    needs: [secrets-scan, sast, sca, build-and-scan, iac-scan, lint-typecheck, test]
+    if: always()
+    steps:
+      - name: Check all security jobs passed
+        run: |
+          if [[ "${{ needs.secrets-scan.result }}" != "success" ]] || \
+             [[ "${{ needs.sast.result }}" != "success" ]] || \
+             [[ "${{ needs.sca.result }}" != "success" ]] || \
+             [[ "${{ needs.build-and-scan.result }}" != "success" ]] || \
+             [[ "${{ needs.iac-scan.result }}" != "success" ]] || \
+             [[ "${{ needs.test.result }}" != "success" ]]; then
+            echo "::error::Security gate FAILED — one or more security checks did not pass"
+            exit 1
+          fi
+          echo "Security gate PASSED"
